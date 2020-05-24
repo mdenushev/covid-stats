@@ -1,3 +1,5 @@
+import os
+
 from flask import Flask, request, send_file, render_template
 from flask_request_validator import (
     GET,
@@ -32,4 +34,6 @@ def index_page():
 
 
 if __name__ == '__main__':
+    if not os.path.exists('data'):
+        os.makedirs('data')
     app.run('0.0.0.0', 3003)
