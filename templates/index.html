@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Коронавирус в России - Статистика</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/css/bootstrap.min.css"
+          integrity="sha384-9aIt2nRpC12Uk9gS9baDl411NQApFmC26EwAOH8WgZl5MYYxFfc+NcPb1dKGj7Sk" crossorigin="anonymous">
+</head>
+<body>
+<div id="app" class="container mt-2" hidden>
+    <form>
+        <div class="form-group">
+            <label for="selectRegion">Выберите регионы <span class="text-secondary">(Используйте Ctrl и Shift для выбора)</span></label>
+            <input type="text" v-model="searchRegion"/>
+            <select id="selectRegion" name="regions" multiple class="form-control" v-model="selectedRegions" size="10">
+                <option :key="region" v-for="region in filteredRegions">{{region}}</option>
+            </select>
+        </div>
+        <div class="form-group form-check">
+            <input type="checkbox" class="form-check-input" id="announcementFlag" v-model="announcements">
+            <label class="form-check-label" for="announcementFlag">Показать обращения президента</label>
+        </div>
+        <button type="submit" class="btn btn-primary" @click.prevent="download">Скачать архив</button>
+    </form>
+</div>
+<div class="spinner-grow container align-content-center" role="status" id="spinner">
+  <span class="sr-only">Loading...</span>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+<script>
+    (function (root, factory) {
+        if (typeof define === 'function' && define.amd) {
+            // AMD. Register as an anonymous module.
+            define([], factory);
+        } else if (typeof exports === 'object') {
+            // Node. Does not work with strict CommonJS, but
+            // only CommonJS-like environments that support module.exports,
+            // like Node.
+            module.exports = factory();
+        } else {
+            // Browser globals (root is window)
+            root.download = factory();
+        }
+    }(this, function () {
+
+        return function download(data, strFileName, strMimeType) {
+
+            var self = window, // this script is only for browsers anyway...
+                defaultMime = "application/octet-stream", // this default mime also triggers iframe downloads
+                mimeType = strMimeType || defaultMime,
+                payload = data,
+                url = !strFileName && !strMimeType && payload,
+                anchor = document.createElement("a"),
+                toString = function (a) {
+                    return String(a);
+                },
+                myBlob = (self.Blob || self.MozBlob || self.WebKitBlob || toString),
+                fileName = strFileName || "download",
+                blob,
+                reader;
+            myBlob = myBlob.call ? myBlob.bind(self) : Blob;
+
+            if (String(this) === "true") { //reverse arguments, allowing download.bind(true, "text/xml", "export.xml") to act as a callback
+                payload = [payload, mimeType];
+                mimeType = payload[0];
+                payload = payload[1];
+            }
+
+
+            if (url && url.length < 2048) { // if no filename and no mime, assume a url was passed as the only argument
+                fileName = url.split("/").pop().split("?")[0];
+                anchor.href = url; // assign href prop to temp anchor
+                if (anchor.href.indexOf(url) !== -1) { // if the browser determines that it's a potentially valid url path:
+                    var ajax = new XMLHttpRequest();
+                    ajax.open("GET", url, true);
+                    ajax.responseType = 'blob';
+                    ajax.onload = function (e) {
+                        download(e.target.response, fileName, defaultMime);
+                    };
+                    setTimeout(function () {
+                        ajax.send();
+                    }, 0); // allows setting custom ajax headers using the return:
+                    return ajax;
+                } // end if valid url?
+            } // end if url?
+
+
+            //go ahead and download dataURLs right away
+            if (/^data\:[\w+\-]+\/[\w+\-]+[,;]/.test(payload)) {
+
+                if (payload.length > (1024 * 1024 * 1.999) && myBlob !== toString) {
+                    payload = dataUrlToBlob(payload);
+                    mimeType = payload.type || defaultMime;
+                } else {
+                    return navigator.msSaveBlob ?  // IE10 can't do a[download], only Blobs:
+                        navigator.msSaveBlob(dataUrlToBlob(payload), fileName) :
+                        saver(payload); // everyone else can save dataURLs un-processed
+                }
+
+            }//end if dataURL passed?
+
+            blob = payload instanceof myBlob ?
+                payload :
+                new myBlob([payload], {type: mimeType});
+
+
+            function dataUrlToBlob(strUrl) {
+                var parts = strUrl.split(/[:;,]/),
+                    type = parts[1],
+                    decoder = parts[2] == "base64" ? atob : decodeURIComponent,
+                    binData = decoder(parts.pop()),
+                    mx = binData.length,
+                    i = 0,
+                    uiArr = new Uint8Array(mx);
+
+                for (i; i < mx; ++i) uiArr[i] = binData.charCodeAt(i);
+
+                return new myBlob([uiArr], {type: type});
+            }
+
+            function saver(url, winMode) {
+
+                if ('download' in anchor) { //html5 A[download]
+                    anchor.href = url;
+                    anchor.setAttribute("download", fileName);
+                    anchor.className = "download-js-link";
+                    anchor.innerHTML = "downloading...";
+                    anchor.style.display = "none";
+                    document.body.appendChild(anchor);
+                    setTimeout(function () {
+                        anchor.click();
+                        document.body.removeChild(anchor);
+                        if (winMode === true) {
+                            setTimeout(function () {
+                                self.URL.revokeObjectURL(anchor.href);
+                            }, 250);
+                        }
+                    }, 66);
+                    return true;
+                }
+
+                // handle non-a[download] safari as best we can:
+                if (/(Version)\/(\d+)\.(\d+)(?:\.(\d+))?.*Safari\//.test(navigator.userAgent)) {
+                    url = url.replace(/^data:([\w\/\-\+]+)/, defaultMime);
+                    if (!window.open(url)) { // popup blocked, offer direct download:
+                        if (confirm("Displaying New Document\n\nUse Save As... to download, then click back to return to this page.")) {
+                            location.href = url;
+                        }
+                    }
+                    return true;
+                }
+
+                //do iframe dataURL download (old ch+FF):
+                var f = document.createElement("iframe");
+                document.body.appendChild(f);
+
+                if (!winMode) { // force a mime that will download:
+                    url = "data:" + url.replace(/^data:([\w\/\-\+]+)/, defaultMime);
+                }
+                f.src = url;
+                setTimeout(function () {
+                    document.body.removeChild(f);
+                }, 333);
+
+            }//end saver
+
+
+            if (navigator.msSaveBlob) { // IE10+ : (has Blob, but not a[download] or URL)
+                return navigator.msSaveBlob(blob, fileName);
+            }
+
+            if (self.URL) { // simple fast and modern way using Blob and URL:
+                saver(self.URL.createObjectURL(blob), true);
+            } else {
+                // handle non-Blob()+non-URL browsers:
+                if (typeof blob === "string" || blob.constructor === toString) {
+                    try {
+                        return saver("data:" + mimeType + ";base64," + self.btoa(blob));
+                    } catch (y) {
+                        return saver("data:" + mimeType + "," + encodeURIComponent(blob));
+                    }
+                }
+
+                // Blob but not URL support:
+                reader = new FileReader();
+                reader.onload = function (e) {
+                    saver(this.result);
+                };
+                reader.readAsDataURL(blob);
+            }
+            return true;
+        }; /* end download() */
+    }));
+</script>
+<script>
+
+    const app = new Vue({
+        el: '#app',
+        data: {
+            selectedRegions: [],
+            filteredRegions: [],
+            searchRegion: '',
+            announcements: true,
+            regions: [
+                'Республика Марий Эл', 'Республика Татарстан', 'Удмуртская Республика',
+                'Республика Чувашия', 'Забайкальский край', 'Иркутская область',
+                'Красноярский край', 'Республика Бурятия', 'Республика Саха (Якутия)',
+                'Республика Тыва', 'Республика Хакасия', 'Кировская область',
+                'Нижегородская область', 'Рязанская область', 'Алтайский край',
+                'Кемеровская область', 'Новосибирская область', 'Омская область',
+                'Республика Алтай', 'Томская область', 'Москва',
+                'Московская область', 'Амурская область', 'Еврейская автономный область',
+                'Камчатский край', 'Магаданская область', 'Приморский край',
+                'Сахалинская область', 'Хабаровский край', 'Чукотский автономный округ',
+                'Архангельская область', 'Калининградская область', 'Ленинградская область',
+                'Мурманская область', 'Ненецкий автономный округ', 'Новгородская область',
+                'Псковская область', 'Республика Карелия', 'Республика Коми',
+                'Санкт-Петербург', 'Смоленская область', 'Владимирская область',
+                'Вологодская область', 'Ивановская область', 'Костромская область',
+                'Тверская область', 'Ярославская область', 'Оренбургская область',
+                'Пензенская область', 'Республика Мордовия', 'Самарская область',
+                'Саратовская область', 'Ульяновская область', 'Курганская область',
+                'Пермский край', 'Республика Башкортостан', 'Свердловская область',
+                'Тюменская область', 'Ханты-Мансийский АО', 'Челябинская область',
+                'Ямало-Ненецкий автономный округ', 'Кабардино-Балкарская республика', 'Карачаево-Черкесская Республика',
+                'Краснодарский край', 'Республика Адыгея', 'Республика Дагестан',
+                'Республика Ингушетия', 'Республика Северная Осетия-Алания', 'Ставропольский край',
+                'Чеченская республика', 'Белгородская область', 'Брянская область',
+                'Воронежская область', 'Калужская область', 'Курская область',
+                'Липецкая область', 'Орловская область', 'Тамбовская область',
+                'Тульская область', 'Астраханская область', 'Республика Крым',
+                'Волгоградская область', 'Республика Калмыкия', 'Ростовская область', 'Севастополь'
+            ]
+        },
+        watch: {
+            searchRegion: function (val) {
+                if (val !== '') {
+                    this.filteredRegions = this.regions.filter(region => region.toLowerCase().includes(val.toLowerCase()))
+                } else {
+                    this.filteredRegions = this.regions
+                }
+            }
+        },
+        methods: {
+            download: function (e) {
+                let fileName = `stats_${new Date().toISOString()}.zip`
+                console.log(fileName)
+                e.preventDefault();
+                let query = new URLSearchParams();
+                query.set('regions', this.selectedRegions.join(','))
+                query.set('announcements', this.announcements)
+                axios.get('/stats?' + query.toString(),
+                    {
+                        responseType: 'arraybuffer'
+                    }
+                ).then(r => {
+                    download(r.data, fileName, 'application/zip')
+                })
+            }
+        },
+        created: function () {
+            this.filteredRegions = this.regions;
+            document.getElementById('spinner').hidden = true;
+            document.getElementById('app').hidden = false;
+        }
+    })
+</script>
+</body>
+</html>
